@@ -41,7 +41,7 @@ class BlockchainService
       accepted_deposits = deposits.map(&method(:update_or_create_deposit)).compact
       withdrawals.each(&method(:update_withdrawal))
     end
-    accepted_deposits.each(&:aml_check!)
+    accepted_deposits.each(&:process!)
     block
   end
 
@@ -100,6 +100,7 @@ class BlockchainService
         txout: transaction.txout
       ) do |d|
         d.address = transaction.to_address
+        d.from_addresses = transaction.from_addresses
         d.amount = transaction.amount
         d.member = PaymentAddress.find_by(currency_id: transaction.currency_id, address: transaction.to_address).account.member
         d.block_number = transaction.block_number
