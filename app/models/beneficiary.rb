@@ -36,17 +36,27 @@ class Beneficiary < ApplicationRecord
     state :archived
 
     event :activate do
-      transitions from: :pending, to: :aml_processing, guard: :valid_pin?
-      after do
-        Peatio::AML.check(rid, currency_id)
+      if Peatio::AML.adapter.present?
+        transitions from: :pending, to: :aml_processing, guard: :valid_pin?
+        after do
+          aml_approve! if aml_check!
+        end
+      else
+        transitions from: :pending, to: :active, guard: :valid_pin?
       end
     end
+
     event :enable do
       transition from: :aml_processing, to: :active
     end
+
+    event :aml_approve do
+      transition from: :aml_processing, to: :active
+    end if Peatio::AML.adapter.present?
+
     event :aml_suspicious do
       transitions from: :aml_processing, to: :aml_suspicious
-    end
+    end if Peatio::AML.adapter.present?
 
     event :archive do
       transitions from: %i[pending aml_processing aml_suspicious active], to: :archived
@@ -109,6 +119,17 @@ class Beneficiary < ApplicationRecord
   end
 
   # == Instance Methods =====================================================
+
+  def aml_check!
+    result = Peatio::AML.check!(rid, currency_id, member.uid)
+    if result.risk_detected
+      aml_suspicious!
+      return nil
+    end
+    return nil if result.is_pending
+
+    true
+  end
 
   def as_json_for_event_api
     { user:        { uid: member.uid, email: member.email },
