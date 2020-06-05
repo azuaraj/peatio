@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 describe Jobs::Cron::Portfolio do
-  let(:member) { create(:member, :level_3) }
-  let(:member_platform) { create(:member, :level_3) }
+  let!(:member_platform) { create(:member, :level_3) }
+  let!(:member) { create(:member, :level_3) }
 
   include ::API::V2::Management::Helpers
 
@@ -10,8 +10,10 @@ describe Jobs::Cron::Portfolio do
     Transfer.transaction do
       transfer = Transfer.create!(transfer_attrs.slice(:key, :category, :description))
       transfer_attrs[:operations].map do |op_pair|
-        shared_params = { currency: op_pair[:currency],
-                          reference: transfer }
+        shared_params = {
+          currency: op_pair[:currency],
+          reference: transfer
+        }
 
         debit_params = op_pair[:account_src]
                        .merge(debit: op_pair[:amount])
@@ -26,105 +28,6 @@ describe Jobs::Cron::Portfolio do
         create_operation!(debit_params)
         create_operation!(credit_params)
       end
-    end
-  end
-
-  def scenario_internal_sell
-    key = (Time.now.to_f * 1000).to_i
-    create(:deposit_usd, member: member, amount: 100).accept!
-    d = create(:deposit_btc, member: member_platform, amount: 0.09)
-    d.accept!
-    d.process!
-    d.dispatch
-
-    transfers_attr = [
-      {
-        key: key,
-        category: Transfer::CATEGORIES_MAPPING[:purchases],
-        operations: [
-          {
-            currency: :usd,
-            amount: 100,
-            account_src: {
-              code: 201,
-              uid: member.uid
-            },
-            account_dst: {
-              code: 211,
-              uid: member.uid
-            }
-          }
-        ]
-      },
-      {
-        key: key+1,
-        category: Transfer::CATEGORIES_MAPPING[:purchases],
-        operations: [
-          {
-            # Refund (unlock) user 10 usd
-            currency: :usd,
-            amount: 10,
-            account_src: {
-              code: 211,
-              uid: member.uid
-            },
-            account_dst: {
-              code: 201,
-              uid: member.uid
-            }
-          },
-          {
-            # Transfer 89 usd from user to the platform
-            currency: :usd,
-            amount: 89,
-            account_src: {
-              code: 211,
-              uid: member.uid
-            },
-            account_dst: {
-              code: 201,
-              uid: member_platform.uid
-            }
-          },
-          {
-            # Transfer 1 usd from user to the platform fees
-            currency: :usd,
-            amount: 1,
-            account_src: {
-              code: 211,
-              uid: member.uid
-            },
-            account_dst: {
-              code: 301,
-              uid: member_platform.uid
-            }
-          },
-          {
-            # Transfer 0.09 btc from the platform to the user
-            currency: :btc,
-            amount: 0.09,
-            account_src: {
-              code: 202,
-              uid: member_platform.uid
-            },
-            account_dst: {
-              code: 202,
-              uid: member.uid
-            }
-          }
-        ]
-      }
-    ]
-
-    transfers_attr.each do |transfer_attrs|
-      create_transfer(transfer_attrs)
-    end
-  end
-
-  context 'transfer' do
-    it do
-      scenario_internal_sell
-      # byebug
     end
   end
 
@@ -790,6 +693,110 @@ describe Jobs::Cron::Portfolio do
         expect(Portfolio.last.total_credit_value).to eq coin_deposit.amount * trade_btceth.price
         expect(Portfolio.last.last_liability_id).to eq liability.id
       end
+    end
+  end
+
+  context 'scenario1_internal_sell' do
+    before do
+      Jobs::Cron::Portfolio.stubs(:portfolio_currencies).returns(['usd'])
+    end
+
+    def scenario1_internal_sell
+      key = (Time.now.to_f * 1000).to_i
+      create(:deposit_usd, member: member, amount: 100).accept!
+      d = create(:deposit_btc, member: member_platform, amount: 0.09)
+      d.accept!
+      d.process!
+      d.dispatch
+
+      transfers_attr = [
+        {
+          key: key,
+          category: Transfer::CATEGORIES_MAPPING[:purchases],
+          operations: [
+            {
+              currency: :usd,
+              amount: 100,
+              account_src: {
+                code: 201,
+                uid: member.uid
+              },
+              account_dst: {
+                code: 211,
+                uid: member.uid
+              }
+            }
+          ]
+        },
+        {
+          key: key+1,
+          category: Transfer::CATEGORIES_MAPPING[:purchases],
+          operations: [
+            {
+              # Refund (unlock) user 10 usd
+              currency: :usd,
+              amount: 10,
+              account_src: {
+                code: 211,
+                uid: member.uid
+              },
+              account_dst: {
+                code: 201,
+                uid: member.uid
+              }
+            },
+            {
+              # Transfer 89 usd from user to the platform
+              currency: :usd,
+              amount: 89,
+              account_src: {
+                code: 211,
+                uid: member.uid
+              },
+              account_dst: {
+                code: 201,
+                uid: member_platform.uid
+              }
+            },
+            {
+              # Transfer 1 usd from user to the platform fees
+              currency: :usd,
+              amount: 1,
+              account_src: {
+                code: 211,
+                uid: member.uid
+              },
+              account_dst: {
+                code: 301,
+                uid: member.uid
+              }
+            },
+            {
+              # Transfer 0.09 btc from the platform to the user
+              currency: :btc,
+              amount: 0.09,
+              account_src: {
+                code: 202,
+                uid: member_platform.uid
+              },
+              account_dst: {
+                code: 202,
+                uid: member.uid
+              }
+            }
+          ]
+        }
+      ]
+
+      transfers_attr.each do |transfer_attrs|
+        create_transfer(transfer_attrs)
+      end
+    end
+
+    it do
+      scenario1_internal_sell
+      Jobs::Cron::Portfolio.process
+      # byebug
     end
   end
 end
